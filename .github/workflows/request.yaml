@@ -1,0 +1,35 @@
+name: Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      addresses:
+        type: string
+        required: false
+        description: SM-DP+ Addresses
+      issuers:
+        type: string
+        required: false
+        description: SM-DP+ Issuers
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+      - run: sudo apt-get install -y openssl
+      - run: pip install -r requirements.txt
+      - run: ./main.py
+        env:
+          SMDP_ADDRESSES: ${{ github.event.inputs.addresses }}
+          SMDP_ISSUERS: ${{ github.event.inputs.issuers }}
+      - run: ./stats.py
+      - uses: stefanzweifel/git-auto-commit-action@v5
