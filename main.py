@@ -131,21 +131,20 @@ def get_certificate(smdp_address: str, issuer: str) -> tuple[str, bytes | None]:
 
 def download_certificate(record: Record) -> Record:
     host = get_hostname(record.smdp_address)
-    tls_file_path = os.path.join(os.path.join(BASE_PATH, host, "tls.pem"))
-    # if not os.path.exists(tls_file_path):
-    #     peer_certificate = get_peer_certificate(record.smdp_address)
-    #     if peer_certificate:
-    #         store_certificate_with_openssl(tls_file_path, peer_certificate)
-    issuer, certificate = get_certificate(record.smdp_address, record.issuer)
-    if not certificate:
-        return Record(record.smdp_address, issuer, "")
+    # noinspection PyBroadException
+    try:
+        issuer, certificate = get_certificate(record.smdp_address, record.issuer)
+        if not certificate:
+            return Record(record.smdp_address, issuer, "")
+    except Exception:
+        return Record(record.smdp_address, "", "")
     parsed_certificate = x509.load_der_x509_certificate(certificate)
-    issuer = parsed_certificate.extensions.get_extension_for_class(
-        x509.AuthorityKeyIdentifier
-    ).value.key_identifier.hex()
-    key_id = parsed_certificate.extensions.get_extension_for_class(
-        x509.SubjectKeyIdentifier
-    ).value.key_identifier.hex()
+    issuer = (parsed_certificate.extensions
+              .get_extension_for_class(x509.AuthorityKeyIdentifier)
+              .value.key_identifier.hex())
+    key_id = (parsed_certificate.extensions
+              .get_extension_for_class(x509.SubjectKeyIdentifier)
+              .value.key_identifier.hex())
     file_path = os.path.join(os.path.join(BASE_PATH, host, f"{issuer}.pem"))
     store_certificate_with_openssl(file_path, certificate)
     return Record(record.smdp_address, issuer, key_id)
@@ -200,12 +199,15 @@ def store_records(records: list[Record]):
 
 
 def expand_incremental_records(
-    records: list[Record], max_workers: int
+        records: list[Record],
+        max_workers: int
 ) -> Iterator[Record]:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(download_certificate, r): r for r in records}
         for future in as_completed(futures):
             record: Record = futures[future]
+            if len(record.issuer) == 0:
+                continue
             actual_record: Record = future.result()
             yield actual_record if record.issuer == actual_record.issuer else record
 
@@ -218,7 +220,7 @@ def has_expired_record(address: str, issuer: str) -> bool:
         certificate = x509.load_pem_x509_certificate(fp.read())
     delta = timedelta(
         seconds=certificate.not_valid_after_utc.timestamp()
-        - datetime.now(UTC).timestamp()
+                - datetime.now(UTC).timestamp()
     )
     return -180 <= delta.days <= 0
 
